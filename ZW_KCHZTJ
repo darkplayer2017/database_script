@@ -1,0 +1,73 @@
+USE [hlxzyy]
+GO
+/****** Object:  StoredProcedure [dbo].[ZW_KCHZTJ]    Script Date: 02/20/2017 16:48:31 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER proc [dbo].[ZW_KCHZTJ] @mStart datetime2(7),@mEnd datetime2(7)
+ as
+ set nocount on
+  select  a.CODING,A.COMMODITY,A.SPECS, A.UNIT,PRICE=b.price,NUMS=sum(convert(numeric(10,4),B.NUM)),
+ RKJE=sum(convert(numeric(19,3),B.PRICE*B.NUM)) into #temp_rk
+ FROM ZWXMMX A,ZWRKK B,ZWRECEIPT C 
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID  AND (C.TTYPE=1) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+ --正常出库
+ select  a.CODING,A.COMMODITY,A.SPECS,A.UNIT,PRICE=b.price,NUMS=sum(convert(numeric(10,4),B.nums)), 
+ CKJE=sum(convert(numeric(19,3),B.PRICE*B.NUMS)) into  #temp_ck
+ FROM ZWXMMX A,ZWCKK B,ZWRECEIPT C
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID AND (C.TTYPE=2) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+ --自然报损
+  select  a.CODING,A.COMMODITY,A.SPECS,A.UNIT,PRICE=b.price,NUMS=sum(convert(numeric(10,4),B.nums)), 
+ ZRBSJE=sum(convert(numeric(19,3),B.PRICE*B.NUMS)) into  #temp_ck_zr
+ FROM ZWXMMX A,ZWCKK B,ZWRECEIPT C
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID AND (c.ttype=3) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+ --科室报损
+  select  a.CODING,A.COMMODITY,A.SPECS,A.UNIT,PRICE=b.price,NUMS=sum(convert(numeric(10,4),B.nums)), 
+ KSBSJE=sum(convert(numeric(19,3),B.PRICE*B.NUMS)) into  #temp_ck_ks_bs
+ FROM ZWXMMX A,ZWCKK B,ZWRECEIPT C
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID AND (c.ttype=4) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+ --科室退库
+  select  a.CODING,A.COMMODITY,A.SPECS,A.UNIT,PRICE=b.price,NUMS=abs(sum(convert(numeric(10,4),B.nums))), 
+ KSTKJE=abs(sum(convert(numeric(19,3),B.PRICE*B.NUMS))) into  #temp_ck_ks_tk
+ FROM ZWXMMX A,ZWCKK B,ZWRECEIPT C
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID AND (c.TTYPE=5) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+ --退供货商
+  select  a.CODING,A.COMMODITY,A.SPECS,A.UNIT,PRICE=b.price,NUMS=sum(convert(numeric(10,4),B.nums)), 
+ TGHSJE=sum(convert(numeric(19,3),B.PRICE*B.NUMS)) into  #temp_ck_tgh
+ FROM ZWXMMX A,ZWCKK B,ZWRECEIPT C
+ WHERE A.CODING=B.CODING AND B.DHID=C.DHID AND (c.TTYPE=6) 
+ AND datediff(day,@mStart,C.DDATE)>0 and datediff(day,c.DDate,@mEnd)>=0 group by a.CODING,b.PRICE,a.SPECS,a.UNIT,A.COMMODITY
+
+ 
+ select CODING,PRICE,SUM(NUM) as NUMS into #temp_kc from ZWKCK group by CODING,PRICE
+ select  a.CODING,b.COMMODITY,b.SPECS,b.UNIT,a.PRICE,a.NUMS,KCJE=sum(convert(numeric(10,4),a.PRICE*a.NUMS)) into #temp_kcl from #temp_kc a inner join ZWXMMX b  on a.CODING=b.CODING group by a.CODING,b.COMMODITY,b.SPECS,b.UNIT,a.PRICE,a.NUMS
+ create table #temp_crk(CODING varchar(7),COMMODITY varchar(40),SPECS varchar(30),UNIT varchar(10),PRICE money,RKSL numeric(12,4) default 0,CKSL numeric(12,4) default 0,ZRBSSL numeric(12,4) default 0,KSBSSL numeric(12,4) default 0,KSTKSL numeric(12,4) default 0,TGHSSL numeric(12,4) default 0,KCSL numeric(12,4) default 0,RKJE money default 0,CKJE money default 0,ZRBSJE money default 0,KSBSJE money default 0,KSTKJE money default 0,TGHSJE money default 0,KCJE money default 0)
+ 
+insert into #temp_crk select coding,'','','',price,0,0,0,0,0,0,0,0,0,0,0,0,0,0 from (
+ select distinct coding,price from #temp_ck
+ union select distinct coding,price from #temp_ck_ks_bs
+ union select distinct coding,price from #temp_ck_ks_tk
+ union select distinct coding,price from #temp_ck_tgh
+ union select distinct coding,price from #temp_ck_zr
+ union select distinct coding,price from #temp_kcl
+ union select distinct coding,price from #temp_rk)a
+ 
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,RKSL=b.NUMS,RKJE=b.RKJE from #temp_crk a inner join #temp_rk b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,CKSL=b.NUMS,CKJE=b.CKJE from #temp_crk a inner join #temp_ck b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,KSBSSL=b.NUMS,KSBSJE=b.KSBSJE from #temp_crk a inner join #temp_ck_ks_bs b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,KSTKSL=b.NUMS,KSTKJE=b.KSTKJE from #temp_crk a inner join #temp_ck_ks_tk b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,TGHSSL=b.NUMS,TGHSJE=b.TGHSJE from #temp_crk a inner join #temp_ck_tgh b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,ZRBSSL=b.NUMS,ZRBSJE=b.ZRBSJE from #temp_crk a inner join #temp_ck_zr b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ update #temp_crk set COMMODITY=b.COMMODITY,SPECS=b.SPECS,UNIT=b.UNIT,KCSL=b.NUMS,KCJE=b.KCJE from #temp_crk a inner join #temp_kcl b on a.CODING=b.CODING and a.PRICE=b.PRICE
+ 
+ select CODING,COMMODITY,SPECS,UNIT,PRICE,RKSL,CKSL,ZRBSSL,KSBSSL,KSTKSL,TGHSSL,KCSL,RKJE,CKJE,ZRBSJE,KSBSJE,KSTKJE,TGHSJE,KCJE,(RKSL-CKSL-ZRBSSL-KSBSSL+KSTKSL-TGHSSL) as RCKC,(KCSL-RKSL+CKSL+ZRBSSL+KSBSSL-KSTKSL+TGHSSL) as QCYYKC,(RKJE-CKJE-ZRBSJE-KSBSJE+KSTKJE-TGHSJE) as RCJEC,(KCJE-RKJE+CKJE+ZRBSJE+KSBSJE-KSTKJE+TGHSJE) as QCYYJE into #temp_crk_tj from #temp_crk
+ insert into #temp_crk_tj select '','合计','','','',SUM(RKSL) as RKSL,SUM(CKSL) as CKSL,SUM(ZRBSSL) as ZRBSSL,SUM(KSBSSL) as KSBSSL,SUM(KSTKSL) as KSTKSL,SUM(TGHSSL) as TGHSSL,SUM(KCSL) as KCSL,SUM(RKJE) as RKJE,SUM(CKJE) as CKJE,SUM(ZRBSJE) as ZRBSJE,SUM(KSBSJE) as KSBSJE,SUM(KSTKJE) as KSTKJE,SUM(TGHSJE) as TGHSJE,SUM(KCJE) as KCJE,SUM(RCKC) as RCKC,SUM(QCYYKC) as QCYYKC,SUM(RCJEC) as RCJEC,SUM(QCYYJE) as QCYYJE from #temp_crk_tj
+set nocount off
+ --select * from #temp_crk_tj order by CODING,PRICE
+ select CODING as 物品编码,COMMODITY as 物品名称,SPECS as 规格,UNIT as 单位,PRICE as 价格,RKSL as 入库数量,CKSL as 出库数量,ZRBSSL as 自然报损数量,KSBSSL as 科室报损数量,KSTKSL as 科室退库数量,TGHSSL as 退供货商数量,RCKC as 入出库存差,KCSL as 现有库存数量,QCYYKC as 期初应有库存,RKJE as 入库金额,CKJE as 出库金额,ZRBSJE as 自然报损金额,KSBSJE as 科室报损金额,KSTKJE as 科室退库金额,TGHSJE as 退供货商金额,KCJE as 库存净额,RCJEC as 入出金额差,QCYYJE as 期初应有金额 from #temp_crk_tj order by CODING,PRICE
